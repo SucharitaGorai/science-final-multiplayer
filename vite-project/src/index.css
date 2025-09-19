@@ -1,0 +1,100 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+:root {
+  font-family: 'Press Start 2P', monospace;
+  line-height: 1.5;
+  font-weight: 400;
+  letter-spacing: 1px;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  
+  color: #e9d5ff;
+  background-color: #0f0a1f;
+  
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* Pixel grid background with scanlines */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(124,58,237,0.08) 1px, transparent 1px) 0 0/16px 16px,
+    linear-gradient(0deg, rgba(124,58,237,0.06) 1px, transparent 1px) 0 0/16px 16px,
+    radial-gradient(ellipse at top left, rgba(167,139,250,0.15), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(76,29,149,0.25), transparent 60%);
+  z-index: -1;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.02),
+    rgba(255,255,255,0.02) 2px,
+    rgba(0,0,0,0.03) 3px,
+    rgba(0,0,0,0.03) 4px
+  );
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  z-index: -1;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  height: 100%;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: #0f0a1f;
+  overflow-x: hidden;
+}
+
+h1 {
+  font-size: 2em;
+  line-height: 1.25;
+  text-shadow: 2px 2px 0px #000;
+  color: #e9d5ff;
+  margin: 16px 0 10px;
+  letter-spacing: 1.2px;
+}
+
+button {
+  border-radius: 0;
+  border: 3px solid #7c3aed;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: 'Press Start 2P', monospace;
+  background: #7c3aed;
+  cursor: pointer;
+  color: #fff;
+  transition: all 0.1s ease;
+  box-shadow: 0 0 0 3px #3b1747 inset;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+button:hover {
+  background: #8b5cf6;
+  transform: translate(-1px, -1px);
+  box-shadow: 0 0 0 3px #3b1747 inset, 2px 2px 0px #7c3aed;
+}
+button:active {
+  transform: translate(0, 0);
+  box-shadow: 0 0 0 3px #3b1747 inset;
+}

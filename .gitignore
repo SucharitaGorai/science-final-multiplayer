@@ -1,0 +1,34 @@
+# Node
+backend/node_modules/
+vite-project/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# Build artifacts
+vite-project/dist/
+vite-project/.vite/
+backend/.cache/
+
+# Env and local config
+*.env
+backend/.env
+vite-project/.env
+.env.local
+.env.*.local
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+logs
+*.log
+
+# Coverage/test
+coverage/
+
+# Misc
+*.local

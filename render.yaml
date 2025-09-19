@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: quiz-backend
+    env: node
+    rootDirectory: backend
+    buildCommand: npm install
+    startCommand: node app.js
+    plan: free
+    envVars:
+      - key: FRONTEND_ORIGIN
+        value: https://YOUR-NETLIFY-SITE.netlify.app
+      # Optional: pin Node version if needed
+      # - key: NODE_VERSION
+      #   value: 18
