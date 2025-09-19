@@ -418,9 +418,21 @@ function finishEscape(room) {
     if (!rooms[room]) return;
     const esc = ensureEscape(room);
     if (!esc) return;
-    // Broadcast visual update first
+    // Broadcast visual update
     io.to(room).emit("escapeConsoleSolved", { consoleId });
-    // Previously incremented progress; now keys come from treasure boxes.
+    // Each correct answer increments keys by one (room-shared progress)
+    esc.solvedCount = (esc.solvedCount || 0) + 1;
+    // Track per-player keys as well
+    esc.keys[socket.id] = (esc.keys[socket.id] || 0) + 1;
+    // Notify clients of key progress
+    io.to(room).emit('escapeKeyProgress', { solvedCount: esc.solvedCount, requiredToUnlock: esc.requiredToUnlock || 3 });
+    // When 3 answers are correct (any player), unlock the door for all players
+    if (esc.solvedCount >= (esc.requiredToUnlock || 3)) {
+      esc.completed = true;
+      io.to(room).emit('escapeState', { completed: true });
+      // Optional: also broadcast a simple chat/system message
+      io.to(room).emit('message', 'The door has been unlocked!');
+    }
   });
 
   // Player attempts to open a treasure box by index (0..5)
@@ -529,7 +541,15 @@ function finishEscape(room) {
     if (correct) {
       esc.scores[socket.id] = (esc.scores[socket.id] || 0) + 10;
       esc.keys[socket.id] = (esc.keys[socket.id] || 0) + 1;
+      // Shared progress toward unlocking the door
+      esc.solvedCount = (esc.solvedCount || 0) + 1;
       io.to(room).emit('escapeProgress', { ok: true, msg: 'Correct! A key was found.', scores: esc.scores, keys: esc.keys });
+      io.to(room).emit('escapeKeyProgress', { solvedCount: esc.solvedCount, requiredToUnlock: esc.requiredToUnlock || 3 });
+      if (esc.solvedCount >= (esc.requiredToUnlock || 3)) {
+        esc.completed = true;
+        io.to(room).emit('escapeState', { completed: true });
+        io.to(room).emit('message', 'The door has been unlocked!');
+      }
       // advance to next stage
       esc.stage += 1;
       esc.currentPuzzleIndex += 1;

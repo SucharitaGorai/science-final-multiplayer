@@ -28,6 +28,10 @@ export default function EscapeGame({ socket, room, name, avatar }) {
   const [qaAnswer, setQaAnswer] = useState('');
   const [qaExpected, setQaExpected] = useState('');
   const qaConsoleIdRef = useRef(null);
+  const qaBoxIndexRef = useRef(null);
+  // Track modal open state in a ref so key handlers can read it without re-binding
+  const qaOpenRef = useRef(false);
+  useEffect(() => { qaOpenRef.current = qaOpen; }, [qaOpen]);
   // Mobile joystick state
   const joyRef = useRef({ active: false, startX: 0, startY: 0 });
   const joyVecRef = useRef({ x: 0, z: 0 }); // -1..1 range
@@ -217,11 +221,18 @@ export default function EscapeGame({ socket, room, name, avatar }) {
       scene.add(localPlayer);
 
       const keys = { w: false, a: false, s: false, d: false };
+      const isTypingTarget = (el) => {
+        if (!el) return false;
+        const tag = (el.tagName || '').toUpperCase();
+        return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable === true;
+      };
       const keyDown = (e) => {
+        if (qaOpenRef.current || isTypingTarget(e.target)) return; // allow typing in inputs
         const k = e.key.toLowerCase();
         if (k in keys) { keys[k] = true; e.preventDefault(); }
       };
       const keyUp = (e) => {
+        if (qaOpenRef.current || isTypingTarget(e.target)) return; // allow typing in inputs
         const k = e.key.toLowerCase();
         if (k in keys) { keys[k] = false; e.preventDefault(); }
       };
@@ -265,23 +276,46 @@ export default function EscapeGame({ socket, room, name, avatar }) {
         const dir = new THREE.Vector3();
         // keyboard input
         let dx = 0, dz = 0;
-        if (keys.w) dz -= 1;
-        if (keys.s) dz += 1;
-        if (keys.a) dx -= 1;
-        if (keys.d) dx += 1;
-        // joystick input (already normalized -1..1)
-        dx += joyVecRef.current.x;
-        dz += joyVecRef.current.z;
-        dir.set(dx, 0, dz);
-        if (dir.lengthSq() > 0) {
+        if (qaOpenRef.current) {
+          // Freeze movement while answering
+          keys.w = keys.a = keys.s = keys.d = false;
+          joyVecRef.current = { x: 0, z: 0 };
+          dir.set(0, 0, 0);
+        } else {
+          if (keys.w) dz -= 1;
+          if (keys.s) dz += 1;
+          if (keys.a) dx -= 1;
+          if (keys.d) dx += 1;
+          // joystick input (already normalized -1..1)
+          dx += joyVecRef.current.x;
+          dz += joyVecRef.current.z;
+          dir.set(dx, 0, dz);
+        }
+        const moving = dir.lengthSq() > 0.0001;
+        if (moving) {
           dir.normalize().multiplyScalar(speed * dt);
           localPlayer.position.add(dir);
         }
+        // Clamp within room bounds to avoid drifting into empty space
+        localPlayer.position.x = Math.max(-19, Math.min(19, localPlayer.position.x));
+        localPlayer.position.z = Math.max(-19, Math.min(19, localPlayer.position.z));
 
-        // Make camera follow the player smoothly
+        // Make camera follow the player
         camTarget.copy(localPlayer.position).add(followOffset);
-        camera.position.lerp(camTarget, 0.08);
-        controls.target.lerp(localPlayer.position, 0.2);
+        if (moving && !qaOpenRef.current) {
+          // smooth while moving
+          camera.position.lerp(camTarget, 0.12);
+          controls.target.lerp(localPlayer.position, 0.25);
+        } else {
+          // snap when stopped so it doesn't drift
+          camera.position.copy(camTarget);
+          controls.target.copy(localPlayer.position);
+        }
+        // Safety: if camera somehow gets too far, snap it back near the player
+        if (camera.position.distanceTo(localPlayer.position) > 60) {
+          camera.position.copy(localPlayer.position).add(followOffset);
+          controls.target.copy(localPlayer.position);
+        }
         // Update name sprite positions above avatars
         Object.entries(playersRef.current).forEach(([id, entry]) => {
           const spr = nameSpritesRef.current[id];
@@ -326,7 +360,7 @@ export default function EscapeGame({ socket, room, name, avatar }) {
           objectsRef.current.vault.lid.rotation.x = THREE.MathUtils.lerp(objectsRef.current.vault.lid.rotation.x, target, 0.05);
         }
 
-        // Proximity auto-question: if near an unsolved console for ~1s, pop a question
+        // Proximity auto-question
         // Disabled during countdown
         if (countdownDeadlineRef.current && Date.now() < countdownDeadlineRef.current) {
           renderer.render(scene, camera);
@@ -338,6 +372,34 @@ export default function EscapeGame({ socket, room, name, avatar }) {
           return;
         }
         const consoles = objectsRef.current.consoles || {};
+        const boxes = objectsRef.current.boxes || [];
+        // 1) If near an unopened box, immediately pop a question (once)
+        if (!qaOpen) {
+          let nearBox = -1; let boxD2 = Infinity;
+          boxes.forEach((entry, i) => {
+            if (!entry || entry.opened) return;
+            const dx = localPlayer.position.x - entry.mesh.position.x;
+            const dz = localPlayer.position.z - entry.mesh.position.z;
+            const d2 = dx*dx + dz*dz;
+            if (d2 < 6.25 && d2 < boxD2) { boxD2 = d2; nearBox = i; }
+          });
+          if (nearBox >= 0) {
+            const key = `box-${nearBox}`;
+            const last = askedRecentlyRef.current[key] || 0;
+            // pop immediately the first time; then cool down for 8s before re-asking
+            if (performance.now() - last > 8000 || last === 0) {
+              const q = questions[Math.floor(Math.random() * questions.length)];
+              qaConsoleIdRef.current = null;
+              qaBoxIndexRef.current = nearBox;
+              setQaQuestion(q.q);
+              setQaExpected(String(q.a).toLowerCase());
+              setQaAnswer('');
+              setQaOpen(true);
+              askedRecentlyRef.current[key] = performance.now();
+            }
+          }
+        }
+        // 2) If near an unsolved console, show question with slowdown/throttle
         let nearestId = null; let nearestDist = Infinity;
         Object.entries(consoles).forEach(([id, entry]) => {
           if (!entry || entry.solved) return;
@@ -347,10 +409,10 @@ export default function EscapeGame({ socket, room, name, avatar }) {
           if (d2 < 9 && d2 < nearestDist) { nearestDist = d2; nearestId = id; }
         });
         const now = performance.now();
-        if (nearestId) {
-          // throttle asking: no more than once every 4s per console
+        if (nearestId && !qaOpenRef.current) {
+          // throttle asking: slow further (from 9s -> 15s) per console
           const last = askedRecentlyRef.current[nearestId] || 0;
-          if (!proximityTimersRef.current[nearestId] && now - last > 4000) {
+          if (!proximityTimersRef.current[nearestId] && now - last > 15000) {
             proximityTimersRef.current[nearestId] = setTimeout(() => {
               // still near and unsolved?
               const entry = consoles[nearestId];
@@ -360,6 +422,7 @@ export default function EscapeGame({ socket, room, name, avatar }) {
                 if (dx*dx + dz*dz < 9) {
                   const q = questions[Math.floor(Math.random() * questions.length)];
                   qaConsoleIdRef.current = nearestId;
+                  qaBoxIndexRef.current = null;
                   setQaQuestion(q.q);
                   setQaExpected(String(q.a).toLowerCase());
                   setQaAnswer('');
@@ -369,7 +432,7 @@ export default function EscapeGame({ socket, room, name, avatar }) {
               }
               clearTimeout(proximityTimersRef.current[nearestId]);
               delete proximityTimersRef.current[nearestId];
-            }, 1000);
+            }, 8000); // increase near-wait before asking (from 6s -> 8s)
           }
         }
         // If player reaches the door after unlock, mark escaped and show overlay
@@ -748,19 +811,30 @@ export default function EscapeGame({ socket, room, name, avatar }) {
               <button className="chat-send-btn" onClick={()=>{
                 const ok = String(qaAnswer||'').trim().toLowerCase() === qaExpected;
                 const id = qaConsoleIdRef.current;
-                const consoles = objectsRef.current.consoles || {};
-                const entry = consoles[id];
+                const boxIdx = qaBoxIndexRef.current;
                 if (ok) {
-                  if (entry && entry.mesh?.material) {
-                    const cmat = entry.mesh.material;
-                    cmat.color.setHex(0x22cc88);
-                    cmat.emissive = new threeRef.current.Color(0x0b662e);
-                    cmat.emissiveIntensity = 0.9;
-                    entry.solved = true;
+                  if (boxIdx !== null) {
+                    // Correct near a treasure box: open it
+                    socket.emit('escapeOpenBox', room, boxIdx);
+                    setHudMsg('Correct! Opening treasure box...');
+                    // mark asked recently for this box
+                    askedRecentlyRef.current[`box-${boxIdx}`] = performance.now();
+                    qaBoxIndexRef.current = null;
+                  } else if (id) {
+                    // Correct at a console: mark solved visually and notify server
+                    const consoles = objectsRef.current.consoles || {};
+                    const entry = consoles[id];
+                    if (entry && entry.mesh?.material) {
+                      const cmat = entry.mesh.material;
+                      cmat.color.setHex(0x22cc88);
+                      cmat.emissive = new threeRef.current.Color(0x0b662e);
+                      cmat.emissiveIntensity = 0.9;
+                      entry.solved = true;
+                    }
+                    socket.emit('escapeConsoleSolved', room, id);
+                    socket.emit('escapePuzzleSolved', room);
+                    setHudMsg('Correct! Console unlocked.');
                   }
-                  socket.emit('escapeConsoleSolved', room, id);
-                  socket.emit('escapePuzzleSolved', room);
-                  setHudMsg('Correct! Console unlocked.');
                   setQaOpen(false);
                 } else {
                   setHudMsg('Wrong answer! Try again.');
